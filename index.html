@@ -1,0 +1,894 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>La Habitación del Amnésico — Simulador Filosófico</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,400;1,500&family=Cinzel:wght@500;600;700&family=Courier+Prime:wght@400;700&family=Caveat:wght@400;600;700&family=Playfair+Display:ital,wght@0,500;0,600;0,700;1,500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --sepia-black:#0e0b09;
+    --sepia-dark:#1c1510;
+    --sepia-mid:#3e2f23;
+    --sepia-line:#5a4632;
+    --sepia-light:#d8c7a1;
+    --paper:#ece0c4;
+    --gold:#c9a227;
+    --gold-dim:#8a7331;
+    --ember:#b5471b;
+    --blood:#7a2317;
+  }
+  *{box-sizing:border-box;}
+  body{
+    background:var(--sepia-black);
+    font-family:'Cormorant Garamond', serif;
+    color:var(--sepia-light);
+    min-height:100vh;
+    margin:0;
+    overflow-x:hidden;
+  }
+  .font-display{ font-family:'Cinzel', serif; letter-spacing:0.08em; }
+
+  /* film grain + vignette, sits above everything, ignores pointer */
+  #grain{
+    position:fixed; inset:0; pointer-events:none; z-index:50; opacity:0.16; mix-blend-mode:overlay;
+    background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='120' height='120'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+  }
+  #vignette{
+    position:fixed; inset:0; pointer-events:none; z-index:49;
+    background:radial-gradient(ellipse at center, rgba(0,0,0,0) 35%, rgba(0,0,0,0.55) 85%, rgba(0,0,0,0.85) 100%);
+  }
+
+  .paper-card{
+    background:linear-gradient(180deg, rgba(236,224,196,0.06), rgba(236,224,196,0.02));
+    border:1px solid var(--sepia-line);
+  }
+
+  @keyframes fadeInUp{ from{opacity:0; transform:translateY(10px);} to{opacity:1; transform:translateY(0);} }
+  .fade-in{ animation:fadeInUp 0.9s ease-out both; }
+  .fade-in-1{ animation-delay:0.15s; }
+  .fade-in-2{ animation-delay:0.4s; }
+  .fade-in-3{ animation-delay:0.65s; }
+
+  @keyframes glowPulse{
+    0%,100%{ box-shadow:0 0 6px 1px rgba(201,162,39,0.25), inset 0 0 12px rgba(201,162,39,0.05);}
+    50%{ box-shadow:0 0 22px 4px rgba(201,162,39,0.55), inset 0 0 18px rgba(201,162,39,0.12);}
+  }
+  .obj-glow{ animation:glowPulse 3.2s ease-in-out infinite; }
+
+  .obj-examined{
+    filter:grayscale(0.55) brightness(0.75);
+    box-shadow:none !important;
+  }
+
+  @keyframes flicker{
+    0%,100%{ opacity:1; }
+    45%{ opacity:0.85; }
+    50%{ opacity:0.55; }
+    55%{ opacity:0.9; }
+  }
+  .flame-flicker{ animation:flicker 2.6s infinite; }
+
+  @keyframes drainBar{ from{ width: var(--from); } to{ width: var(--to); } }
+
+  /* fragmentation increases as lucidity drops */
+  .lucidity-70 .room-scene{ filter:none; }
+  .lucidity-40 .room-scene{ filter:saturate(0.85) contrast(1.02); }
+  .lucidity-10 .room-scene{ filter:saturate(0.6) contrast(1.08) blur(0.3px); }
+  .lucidity-0 .room-scene{ filter:saturate(0.35) contrast(1.15) blur(0.6px); }
+
+  @keyframes glitchText{
+    0%,100%{ transform:translate(0,0); opacity:1; }
+    2%{ transform:translate(-1px,0.5px); opacity:0.92; }
+    4%{ transform:translate(1px,-0.5px); opacity:1; }
+    96%{ transform:translate(0.5px,0); opacity:0.96; }
+  }
+  .text-fragment{ animation:glitchText 6s infinite; }
+
+  .door-locked{ filter:grayscale(1) brightness(0.55); }
+  .door-open{ animation:glowPulse 2.4s ease-in-out infinite; cursor:pointer; }
+
+  @keyframes shakeNo{
+    0%,100%{ transform:translateX(0); }
+    20%{ transform:translateX(-4px); }
+    40%{ transform:translateX(4px); }
+    60%{ transform:translateX(-3px); }
+    80%{ transform:translateX(3px); }
+  }
+  .shake{ animation:shakeNo 0.5s ease-in-out; }
+
+  .modal-backdrop{ background:rgba(6,4,3,0.82); backdrop-filter: blur(2px); }
+
+  /* =====================================================================
+     DIEGETIC MODALS — each object's reading pane mimics the physical
+     object itself instead of a generic dialog. Purely presentational;
+     the text rendered inside still comes straight from GAME_DATA.
+     ===================================================================== */
+
+  /* --- Medical File: clinical manila folder, typewriter, sterile --- */
+  .modal-medical{
+    background-color:#e9e4d3;
+    background-image:
+      linear-gradient(rgba(233,228,211,0.97), rgba(233,228,211,0.97)),
+      repeating-linear-gradient(0deg, rgba(30,28,22,0.05) 0px, rgba(30,28,22,0.05) 1px, transparent 1px, transparent 27px);
+    color:#201f1b;
+    font-family:'Courier Prime', 'Courier New', monospace;
+    border:2px solid #24231f;
+    box-shadow:7px 7px 0 rgba(0,0,0,0.35);
+  }
+  .modal-medical::before{
+    content:"";
+    position:absolute; top:-16px; left:28px; width:130px; height:18px;
+    background:#e9e4d3; border:2px solid #24231f; border-bottom:2px solid #e9e4d3;
+    clip-path:polygon(8% 0, 92% 0, 100% 100%, 0% 100%);
+  }
+  .medical-stamp{
+    position:absolute; top:18px; right:20px;
+    border:3px solid #7a1f1f; color:#7a1f1f;
+    padding:3px 10px; font-family:'Courier Prime', monospace; font-weight:700;
+    letter-spacing:0.15em; text-transform:uppercase; font-size:0.68rem;
+    transform:rotate(-9deg); opacity:0.8; border-radius:2px;
+    mix-blend-mode:multiply;
+  }
+  .btn-medical{
+    font-family:'Courier Prime', monospace; letter-spacing:0.08em; text-transform:uppercase; font-size:0.72rem;
+    border:2px solid #24231f; color:#24231f; background:transparent;
+    padding:0.55rem 1.15rem; transition:all 0.25s ease;
+  }
+  .btn-medical:hover{ background:#24231f; color:#e9e4d3; }
+
+  /* --- Diaries: aged leather-bound journal, handwritten ink --- */
+  .modal-diary{
+    background:radial-gradient(ellipse at 28% 18%, #f5ead0, #e9d7a9 55%, #d8c18a 100%);
+    color:#2c1d10;
+    font-family:'Caveat', cursive;
+    border:1px solid #8a6a3e;
+    box-shadow:inset 0 0 70px rgba(70,40,10,0.22), 5px 5px 16px rgba(0,0,0,0.4);
+  }
+  .modal-diary::before{
+    content:"";
+    position:absolute; left:0; top:0; bottom:0; width:16px;
+    background:linear-gradient(90deg, #3a2313, #5c3c22 70%, #4a2e1a);
+    box-shadow:2px 0 6px rgba(0,0,0,0.4) inset;
+    border-radius:2px 0 0 2px;
+  }
+  .btn-diary{
+    font-family:'Caveat', cursive; font-size:1.2rem; font-weight:700;
+    border:none; border-bottom:2px solid #5c3c22; color:#3a2313; background:transparent;
+    padding:0.3rem 0.5rem; transition:all 0.25s ease;
+  }
+  .btn-diary:hover{ color:#8a1f1f; border-color:#8a1f1f; }
+
+  /* --- Antique Ship: museum exhibition plaque, dark wood + brass --- */
+  .modal-ship{
+    background-color:#2a1810;
+    background-image:repeating-linear-gradient(100deg, rgba(0,0,0,0.15) 0px, rgba(0,0,0,0.15) 3px, transparent 3px, transparent 9px);
+    color:#e9d9ac;
+    font-family:'Playfair Display', 'Cormorant Garamond', serif;
+    border:5px double #c9a227;
+    box-shadow:inset 0 0 55px rgba(0,0,0,0.65), 0 0 26px rgba(201,162,39,0.22);
+  }
+  .ship-plaque-header{ text-shadow:0 1px 0 rgba(255,255,255,0.16), 0 -1px 1px rgba(0,0,0,0.7); }
+  .btn-ship{
+    font-family:'Playfair Display', serif; letter-spacing:0.14em; text-transform:uppercase; font-size:0.72rem;
+    border:1px solid #c9a227; color:#e9d9ac; background:rgba(201,162,39,0.08);
+    padding:0.6rem 1.25rem; transition:all 0.25s ease;
+  }
+  .btn-ship:hover{ background:rgba(201,162,39,0.22); box-shadow:0 0 16px rgba(201,162,39,0.4); }
+
+  ::selection{ background:var(--gold); color:var(--sepia-black); }
+
+  .divider{ height:1px; background:linear-gradient(90deg, transparent, var(--sepia-line), transparent); }
+
+  .btn-noir{
+    font-family:'Cinzel', serif; letter-spacing:0.06em; font-weight:500;
+    border:1px solid var(--gold-dim); color:var(--paper);
+    background:linear-gradient(180deg, rgba(201,162,39,0.14), rgba(201,162,39,0.03));
+    transition:all 0.35s ease;
+  }
+  .btn-noir:hover{ border-color:var(--gold); box-shadow:0 0 16px rgba(201,162,39,0.35); color:var(--gold); }
+  .btn-noir:disabled{ opacity:0.35; cursor:not-allowed; }
+
+  .scrollbar-noir::-webkit-scrollbar{ width:6px; }
+  .scrollbar-noir::-webkit-scrollbar-thumb{ background:var(--sepia-line); border-radius:4px; }
+
+  /* =====================================================================
+     EMOTIONAL FEEDBACK — the lightbulb call-to-action, the ambient bulb
+     synced to Lucidez, the cognitive-hit shake, and per-word text decay.
+     ===================================================================== */
+
+  /* --- Intro lightbulb (replaces the old "start" button) --- */
+  .bulb-cord{ width:2px; height:76px; background:linear-gradient(180deg, #4a3a26, #6a5438); margin:0 auto; }
+  .bulb{
+    width:56px; height:66px; border:none; background:transparent; padding:0; margin:0 auto;
+    display:block; cursor:pointer; position:relative;
+  }
+  .bulb:disabled{ cursor:default; }
+  .bulb-glass{
+    display:block; width:46px; height:54px; margin:0 auto;
+    border-radius:50% 50% 46% 46% / 56% 56% 44% 44%;
+    background:radial-gradient(circle at 35% 30%, #4a4438, #2b2620 70%);
+    border:1px solid #5a4632;
+    position:relative;
+    transition:background 0.5s ease, box-shadow 0.5s ease, border-color 0.5s ease;
+  }
+  .bulb-glass::after{
+    content:""; position:absolute; left:50%; top:58%; width:9px; height:13px; transform:translate(-50%,-50%);
+    border:1px solid #6a5c42; border-radius:2px; opacity:0.55;
+  }
+  .bulb-unlit:hover .bulb-glass{ background:radial-gradient(circle at 35% 30%, #6a6152, #322c22 70%); }
+  .bulb-lit .bulb-glass{
+    background:radial-gradient(circle at 35% 30%, #fff3c0, #e8b923 55%, #a97c14 100%);
+    box-shadow:0 0 30px 10px rgba(233,180,30,0.55), 0 0 70px 30px rgba(233,180,30,0.22);
+    border-color:#e8b923;
+  }
+  @keyframes bulbFlashPulse{
+    0%{ box-shadow:0 0 10px 4px rgba(255,255,255,0.3); background:radial-gradient(circle at 35% 30%, #4a4438, #2b2620 70%); }
+    40%{ box-shadow:0 0 100px 50px rgba(255,255,255,0.95); background:radial-gradient(circle at 35% 30%, #fffdf5, #fff3c0 60%); }
+    100%{ box-shadow:0 0 30px 10px rgba(233,180,30,0.55), 0 0 70px 30px rgba(233,180,30,0.22); background:radial-gradient(circle at 35% 30%, #fff3c0, #e8b923 55%, #a97c14 100%); }
+  }
+  .bulb-flash .bulb-glass{ animation:bulbFlashPulse 0.6s ease-out forwards; }
+
+  @keyframes lightFlashFade{
+    0%{ opacity:0; }
+    15%{ opacity:0.94; }
+    100%{ opacity:0; }
+  }
+  .light-flash-overlay{
+    position:fixed; inset:0; z-index:60; pointer-events:none;
+    background:radial-gradient(circle at 50% 32%, #fffef2, #f5e6b8 40%, transparent 75%);
+    animation:lightFlashFade 0.75s ease-out forwards;
+  }
+
+  /* --- Ambient room bulb, synced to Lucidez --- */
+  .room-bulb-wrap{ display:flex; flex-direction:column; align-items:center; margin-bottom:0.75rem; }
+  .room-bulb-cord{ width:2px; height:30px; background:linear-gradient(180deg, #4a3a26, #6a5438); }
+  .room-bulb{
+    width:24px; height:30px; border-radius:50% 50% 46% 46% / 56% 56% 44% 44%;
+    border:1px solid #5a4632; margin-top:-1px;
+  }
+  .room-bulb.glow-70{
+    background:radial-gradient(circle at 35% 30%, #fff3c0, #e8b923 55%, #a97c14 100%);
+    box-shadow:0 0 20px 7px rgba(233,180,30,0.5);
+    border-color:#e8b923;
+  }
+  @keyframes bulbFlicker40{
+    0%,100%{ opacity:1; box-shadow:0 0 18px 6px rgba(233,180,30,0.42); }
+    4%{ opacity:0.55; box-shadow:0 0 6px 2px rgba(233,180,30,0.2); }
+    6%{ opacity:1; box-shadow:0 0 18px 6px rgba(233,180,30,0.42); }
+    46%{ opacity:0.65; box-shadow:0 0 8px 2px rgba(233,180,30,0.22); }
+    49%{ opacity:1; box-shadow:0 0 18px 6px rgba(233,180,30,0.42); }
+    72%{ opacity:0.8; }
+  }
+  .room-bulb.glow-40{
+    background:radial-gradient(circle at 35% 30%, #fff3c0, #e8b923 55%, #a97c14 100%);
+    border-color:#e8b923;
+    animation:bulbFlicker40 5.5s ease-in-out infinite;
+  }
+  @keyframes bulbBarely10{
+    0%,100%{ opacity:0.4; box-shadow:0 0 8px 2px rgba(181,71,27,0.35); }
+    50%{ opacity:0.65; box-shadow:0 0 13px 4px rgba(181,71,27,0.45); }
+  }
+  .room-bulb.glow-10{
+    background:radial-gradient(circle at 35% 30%, #caa15a, #7a4f18 60%, #4a2e10 100%);
+    border-color:#8a6a3e;
+    animation:bulbBarely10 3s ease-in-out infinite;
+  }
+  @keyframes bulbGlitch0{
+    0%,100%{ opacity:0.18; transform:translate(0,0); }
+    10%{ opacity:0.5; transform:translate(-1px,0); }
+    22%{ opacity:0.12; transform:translate(1px,0.5px); }
+    35%{ opacity:0.55; transform:translate(0,-1px); }
+    50%{ opacity:0.08; transform:translate(0,0); }
+    63%{ opacity:0.4; transform:translate(1px,0); }
+    78%{ opacity:0.15; transform:translate(-1px,0.5px); }
+    90%{ opacity:0.45; transform:translate(0,0.5px); }
+  }
+  .room-bulb.glow-0{
+    background:radial-gradient(circle at 35% 30%, #8a6a3a, #3a2410 60%, #1c1410 100%);
+    border-color:#5a4632;
+    animation:bulbGlitch0 1.7s steps(3,end) infinite;
+  }
+
+  /* --- Cognitive hit: whole-app shake fired when a paradox is revealed --- */
+  @keyframes cognitiveShake{
+    0%{ transform:translate(0,0); }
+    10%{ transform:translate(-6px,2px); }
+    20%{ transform:translate(5px,-3px); }
+    30%{ transform:translate(-5px,3px); }
+    40%{ transform:translate(6px,-2px); }
+    50%{ transform:translate(-4px,1px); }
+    60%{ transform:translate(4px,-2px); }
+    70%{ transform:translate(-3px,2px); }
+    80%{ transform:translate(2px,-1px); }
+    90%{ transform:translate(-1px,1px); }
+    100%{ transform:translate(0,0); }
+  }
+  .cognitive-shake{ animation:cognitiveShake 0.5s ease-in-out; }
+
+  /* --- Word-level text decay: individual words blur/shift as Lucidez < 40% --- */
+  @keyframes wordBlurPulse{
+    0%,100%{ filter:blur(0px); opacity:1; }
+    50%{ filter:blur(2.5px); opacity:0.5; }
+  }
+  .word-glitch-blur{ display:inline-block; animation:wordBlurPulse 2.4s ease-in-out infinite; }
+  @keyframes wordShiftPulse{
+    0%,100%{ transform:translate(0,0); opacity:1; }
+    30%{ transform:translate(1.5px,-1px); opacity:0.65; }
+    60%{ transform:translate(-1.5px,1px); opacity:0.85; }
+  }
+  .word-glitch-shift{ display:inline-block; animation:wordShiftPulse 1.8s ease-in-out infinite; color:#b5471b; }
+</style>
+</head>
+<body>
+
+<div id="grain"></div>
+<div id="vignette"></div>
+
+<div id="app" class="relative z-10 min-h-screen flex items-center justify-center px-4 py-10"></div>
+
+<script>
+/* =========================================================================
+   DATA LAYER — all narrative content, UI strings and pedagogical variables
+   live here. Non-programmers can edit this object to change every word the
+   player sees without touching the engine below.
+   ========================================================================= */
+const GAME_DATA = {
+  meta: {
+    title: "La Habitación del Amnésico",
+    subtitle: "Una paradoja de identidad",
+    footer: "Simulador filosófico interactivo · Diseñado para el estudio de la identidad personal"
+  },
+
+  ui: {
+    startButton: "Abrir los ojos",
+    readMoreButton: "Seguir mirando…",
+    closeButton: "Cerrar los ojos un momento",
+    examineButton: "Examinar",
+    examinedTag: "Examinado",
+    tryDoorButton: "Intentar la puerta",
+    doorLockedShake: "La puerta no cede. Algo en ti —quizás la misma habitación— sabe que aún no has terminado de deshacerte.",
+    exitButton: "Cruzar el umbral",
+    restartButton: "Volver a empezar",
+    lucidityLabel: "Lucidez",
+    progressLabel: "Objetos examinados",
+    dsReflectionTitle: "Un último dato, antes de irte",
+    epilogueTitle: "El umbral",
+    closingCredits: "No hay una respuesta correcta al otro lado de esta puerta. Solo la pregunta, un poco más despierta que antes.",
+    lightbulbHint: "Algo cuelga en la oscuridad.",
+    // Diegetic chrome: small structural labels for each object's modal
+    // (headers, tags, stamps). Purely presentational scaffolding — the
+    // actual clue/paradox narrative always comes from objects[].clue/paradox.
+    modalChrome: {
+      medicalFile: {
+        header: "Historial Clínico",
+        tag: "Exp. N.º 04-771",
+        paradoxStamp: "Anomalía detectada"
+      },
+      diaries: {
+        header: "Diario Personal",
+        tag: "Entrada sin fecha reciente"
+      },
+      ship: {
+        header: "Pieza de Exhibición",
+        tag: "Catálogo N.º 3 · Restauración documentada"
+      }
+    }
+  },
+
+  intro: {
+    paragraphs: [
+      "No sabes cuánto tiempo llevas aquí.",
+      "Abres los ojos —o eso crees— en una habitación estrecha, iluminada por una única bombilla que oscila levemente sobre tu cabeza. No recuerdas cómo llegaste. No recuerdas, si eres honesto, casi nada.",
+      "Pero sabes que eres alguien. Sientes el peso familiar de un cuerpo, el eco de una vida detrás de los ojos. Sobre una mesa, alguien —quizás tú mismo, en otro momento que ya no recuerdas— ha dejado tres objetos, como si esperara que los encontraras. Como si esperara que, examinándolos, pudieras reconstruir quién eres."
+    ]
+  },
+
+  room: {
+    // Base description of the scene, used above lucidity 70
+    baseDescription: "Las paredes están cubiertas de un papel tapiz descolorido que alguna vez fue verde oscuro. Al fondo, una puerta pesada de metal, cerrada. Sobre una mesa de madera desvencijada distingues tres objetos, cada uno esperando ser mirado de cerca.",
+    // Atmosphere text appended/altered as lucidity falls — the room becomes
+    // more fragmented and surreal, never explaining WHY, only showing it.
+    atmosphereStages: [
+      { min: 70, note: "" },
+      { min: 40, note: "La bombilla parpadea con más insistencia ahora. Por un instante, el papel tapiz parece moverse, como si respirara. Sacudes la cabeza. Sigue ahí, quieto." },
+      { min: 10, note: "Los bordes de la habitación ya no están del todo firmes. Las sombras se demoran un segundo de más antes de seguir el movimiento de tu mano. Ya no estás seguro de si la habitación cambió, o si fuiste tú quien dejó de sostenerla." },
+      { min: 0, note: "Apenas reconoces esta habitación como una habitación. Las paredes, la mesa, tus propias manos: todo parece hecho de la misma materia incierta, algo que se sostiene solo porque nadie —ni siquiera tú— se ha atrevido todavía a dejar de mirarlo." }
+    ]
+  },
+
+  objects: [
+    {
+      id: "medicalFile",
+      name: "El expediente médico",
+      icon: "⚕︎",
+      hint: "Una carpeta con el sello de un hospital.",
+      lucidityDrop: 30,
+      clue: "Abres la carpeta. Un historial extenso: tu tipo de sangre, tus huellas dactilares, una radiografía con tus iniciales grabadas a mano. En la última página, la nota de un médico: «Paciente identificado positivamente mediante comparación biométrica. No hay duda: este cuerpo es el mismo que ingresó hace diez años.» Sientes un alivio momentáneo. Al menos tu cuerpo es tuyo. Al menos esto es innegable.",
+      paradox: "Pero sigues leyendo. Hay una nota al margen, con otra letra: «Recordar al paciente: el 98% de sus átomos ya no son los que tenía al nacer. El esqueleto se renueva por completo cada diez años. La piel que hoy te cubre no existía hace un mes.» Entonces, ¿qué examinó realmente ese médico? ¿El cuerpo que cometió tus errores, que sintió tu primer miedo, que firmó estos mismos papeles hace una década… o solo su sombra material, reconstruida átomo por átomo, sin que quede un solo fragmento original? Si no sobrevive ni una sola célula de aquel cuerpo, ¿en qué sentido este sigue siendo el tuyo?"
+    },
+    {
+      id: "diaries",
+      name: "Los diarios",
+      icon: "✒︎",
+      hint: "Una pila de cuadernos de tapa de cuero.",
+      lucidityDrop: 35,
+      clue: "Levantas el primer cuaderno. Tu letra —reconoces el trazo, la forma en que cierras las «oes»— llena página tras página. Un cumpleaños. Una traición. Una risa que casi puedes volver a oír. Esto sí es tuyo: nadie más pudo haber sentido esto exactamente así. Los recuerdos te devuelven, por fin, algo parecido a ti mismo.",
+      paradox: "Sigues pasando páginas y algo se rompe. Hay una entrada, fechada la semana pasada, que describe un viaje a un lugar que estás seguro de no haber visitado jamás. Entre dos hojas, encuentras una tarjeta: «Sesión de consolidación de memoria narrativa — semana 4.» Si algunos de estos recuerdos pudieron escribirse, editarse, implantarse… ¿cómo sabes que los demás no lo fueron también? Y si otra persona despertara mañana con exactamente estos mismos recuerdos —tu risa, tu traición, tu letra— ¿no sentiría, con la misma certeza que tú ahora, que es quien los vivió? Los recuerdos se sienten tuyos. Eso nunca fue prueba de que lo sean."
+    },
+    {
+      id: "ship",
+      name: "El barco de madera",
+      icon: "⚓︎",
+      hint: "Un velero en miniatura, dentro de una vitrina.",
+      lucidityDrop: 25,
+      clue: "El barco dentro de la vitrina es hermoso: un velero tallado con una paciencia que ya no se ve. Una placa de latón dice: «Propiedad de la misma familia desde hace tres generaciones. Restaurado y conservado con devoción.» Al menos algo, en esta habitación, ha permanecido intacto. El mismo objeto, constante, a través del tiempo.",
+      paradox: "Miras más de cerca. Bajo la vitrina hay un registro de restauración: cada mástil, cada tabla del casco, cada clavo ha sido reemplazado al menos una vez en estos ochenta años. Pieza a pieza, hasta que —lo sabes, aunque nadie te lo diga— no queda un solo fragmento de madera original. ¿Sigue siendo «el mismo barco»? Y si lo es, ¿por qué? ¿Por la forma que conserva? ¿Por la historia que alguien insiste en seguir contando sobre él? Porque si el barco puede ser el mismo sin conservar una sola pieza original… entonces quizás tú también lo eres. O quizás la pregunta «¿el mismo barco?» nunca tuvo una respuesta correcta — y tampoco la tiene la que te haces sobre ti."
+    }
+  ],
+
+  door: {
+    unlockNote: "Un chasquido metálico viene desde el fondo de la habitación. La puerta, sin que nadie la toque, ha dejado de estar cerrada."
+  },
+
+  epilogue: {
+    finalMessage: "La puerta se abre con un chasquido seco. Al otro lado no hay luz cegadora ni respuestas: solo un pasillo que se pierde en la penumbra. Ya examinaste el cuerpo, la memoria, el objeto que se reconstruye a sí mismo pieza por pieza. Y sin embargo la pregunta sigue exactamente donde estaba cuando despertaste: ¿qué te hace ser tú? No el cuerpo — cambia por completo. No los recuerdos — pueden fabricarse. No la continuidad de las partes — el barco lo demuestra. Cruzas el umbral sin esa certeza. Tal vez nunca se encuentra del todo. Tal vez de eso se trataba la habitación.",
+    // DS (Data Score) reflection — revealed only at the end, based on which
+    // object the player chose to investigate FIRST. No solution is offered;
+    // it is only handed back to the player as a mirror.
+    firstChoiceReflections: {
+      medicalFile: "Buscaste primero pruebas en la carne, en lo medible. Quizás para ti la identidad siempre fue, ante todo, algo que se puede tocar.",
+      diaries: "Buscaste primero tu propia historia, tus propias palabras. Quizás para ti ser alguien es, sobre todo, recordar haberlo sido.",
+      ship: "Buscaste primero un objeto ajeno, algo fuera de ti mismo, antes de mirarte a ti. Quizás necesitabas ensayar la pregunta en otra cosa antes de hacértela a ti mismo."
+    },
+    dsClosing: "Esto no es un diagnóstico, ni una respuesta. Es solo un dato: el orden que elegiste, sin que nadie te lo pidiera."
+  }
+};
+
+/* =========================================================================
+   ENGINE — generic logic. Reads GAME_DATA, never hardcodes narrative.
+   ========================================================================= */
+const STORAGE_KEY = "noirIdentityRoom_state_v1";
+const TOTAL_OBJECTS = GAME_DATA.objects.length;
+
+function defaultState(){
+  return {
+    screen: "intro",       // intro | room | epilogue
+    lucidity: 100,
+    examined: [],          // ids examined at least once
+    order: [],             // DS: order of first-time investigation
+    doorUnlocked: false,
+    activeModal: null,     // object id currently open in modal, or null
+    modalStage: "clue"     // clue | paradox
+  };
+}
+
+function loadState(){
+  try{
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if(!raw) return defaultState();
+    const parsed = JSON.parse(raw);
+    return Object.assign(defaultState(), parsed);
+  }catch(e){
+    return defaultState();
+  }
+}
+
+function saveState(){
+  try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }catch(e){ /* best effort */ }
+}
+
+let state = loadState();
+let introLit = false; // transient UI flag: has the player turned the intro bulb on?
+
+function getObject(id){
+  return GAME_DATA.objects.find(o => o.id === id);
+}
+
+function getAtmosphereNote(lucidity){
+  const stages = GAME_DATA.room.atmosphereStages;
+  for(const stage of stages){
+    if(lucidity >= stage.min){ return stage.note; }
+  }
+  return stages[stages.length - 1].note;
+}
+
+function lucidityBand(lucidity){
+  if(lucidity >= 70) return "70";
+  if(lucidity >= 40) return "40";
+  if(lucidity >= 10) return "10";
+  return "0";
+}
+
+function lucidityColor(lucidity){
+  if(lucidity >= 70) return "#c9a227";
+  if(lucidity >= 40) return "#c98a27";
+  if(lucidity >= 10) return "#b5471b";
+  return "#7a2317";
+}
+
+/* Word-level text decay: below 40% Lucidez, a random subset of words in
+   the given text is wrapped so it can blur/shift independently — the
+   environment itself losing coherence, word by word, not all at once. */
+function renderGlitchedText(text, band){
+  if(band === "70" || band === "40") return text;
+  const intensity = band === "0" ? 0.38 : 0.18;
+  return text.split(" ").map(word => {
+    if(Math.random() < intensity){
+      const variant = Math.random() < 0.5 ? "word-glitch-blur" : "word-glitch-shift";
+      const delay = (-Math.random() * 2).toFixed(2);
+      return `<span class="${variant}" style="animation-delay:${delay}s">${word}</span>`;
+    }
+    return word;
+  }).join(" ");
+}
+
+/* ---------- Renderers ---------- */
+
+function render(){
+  const app = document.getElementById("app");
+  if(state.screen === "intro"){
+    app.innerHTML = renderIntro();
+  } else if(state.screen === "room"){
+    app.innerHTML = renderRoom();
+  } else if(state.screen === "epilogue"){
+    app.innerHTML = renderEpilogue();
+  }
+  attachListeners();
+}
+
+function renderIntro(){
+  const p = GAME_DATA.intro.paragraphs;
+
+  // Before the player lights it: only the dangling bulb exists in the dark.
+  // Action (click bulb) -> Outcome (flash) -> Feedback (text fades in).
+  if(!introLit){
+    return `
+    <div class="max-w-2xl w-full text-center">
+      <div class="flex flex-col items-center justify-center" style="min-height:55vh;">
+        <div class="bulb-cord"></div>
+        <button id="lightbulbBtn" aria-label="${GAME_DATA.ui.startButton}" class="bulb bulb-unlit">
+          <span class="bulb-glass"></span>
+        </button>
+        <p class="text-xs uppercase tracking-[0.3em] opacity-40 mt-8 fade-in fade-in-2">${GAME_DATA.ui.lightbulbHint}</p>
+      </div>
+    </div>`;
+  }
+
+  return `
+  <div class="max-w-2xl w-full text-center">
+    <div class="flex flex-col items-center justify-center mb-2">
+      <div class="bulb-cord"></div>
+      <span class="bulb bulb-lit" aria-hidden="true"><span class="bulb-glass"></span></span>
+    </div>
+    <h1 class="font-display text-4xl md:text-5xl text-[#c9a227] fade-in tracking-widest mt-4">${GAME_DATA.meta.title}</h1>
+    <p class="font-display text-sm md:text-base mt-3 text-[#d8c7a1] opacity-70 fade-in fade-in-1 tracking-[0.35em] uppercase">${GAME_DATA.meta.subtitle}</p>
+    <div class="divider my-8 fade-in fade-in-1"></div>
+    <div class="text-left space-y-5 text-lg md:text-xl leading-relaxed italic text-[#ece0c4] fade-in fade-in-2">
+      ${p.map(par => `<p>${par}</p>`).join("")}
+    </div>
+    <button id="startBtn" class="btn-noir mt-10 px-8 py-3 rounded-sm text-base fade-in fade-in-3">${GAME_DATA.ui.startButton}</button>
+    <p class="text-xs mt-8 opacity-40 fade-in fade-in-3">${GAME_DATA.meta.footer}</p>
+  </div>`;
+}
+
+function renderRoom(){
+  const band = lucidityBand(state.lucidity);
+  const atmosphereNote = getAtmosphereNote(state.lucidity);
+  const examinedCount = state.examined.length;
+  const allExamined = examinedCount === TOTAL_OBJECTS;
+  const fragmentClass = state.lucidity < 40 ? "text-fragment" : "";
+  const color = lucidityColor(state.lucidity);
+
+  const objectsHtml = GAME_DATA.objects.map(obj => {
+    const isExamined = state.examined.includes(obj.id);
+    return `
+    <button data-obj="${obj.id}" class="obj-card group relative paper-card rounded-md p-5 flex flex-col items-center text-center w-full sm:w-52 ${isExamined ? "obj-examined" : "obj-glow"} transition-transform hover:-translate-y-1">
+      ${isExamined ? `<span class="absolute top-2 right-2 text-[10px] uppercase tracking-widest text-[#8a7331] font-display">${GAME_DATA.ui.examinedTag}</span>` : ""}
+      <span class="text-4xl mb-3" style="color:${isExamined ? '#7a6a4f' : 'var(--gold)'}">${obj.icon}</span>
+      <span class="font-display text-base tracking-wide">${obj.name}</span>
+      <span class="text-sm opacity-60 mt-1">${obj.hint}</span>
+    </button>`;
+  }).join("");
+
+  return `
+  <div class="max-w-3xl w-full lucidity-${band}">
+    <div class="flex items-center justify-between mb-2">
+      <span class="font-display text-xs uppercase tracking-[0.3em] opacity-70">${GAME_DATA.ui.lucidityLabel}</span>
+      <span class="font-display text-xs uppercase tracking-[0.3em] opacity-70">${examinedCount} / ${TOTAL_OBJECTS} · ${GAME_DATA.ui.progressLabel}</span>
+    </div>
+    <div class="w-full h-2 rounded-full bg-[#3e2f23] overflow-hidden mb-6 border border-[#5a4632]">
+      <div id="lucidityBar" class="h-full flame-flicker rounded-full transition-all duration-[1400ms] ease-out" style="width:${state.lucidity}%; background:${color};"></div>
+    </div>
+
+    <div class="room-scene transition-all duration-1000">
+      <div class="room-bulb-wrap fade-in">
+        <div class="room-bulb-cord"></div>
+        <div class="room-bulb glow-${band}"></div>
+      </div>
+      <h2 class="font-display text-2xl md:text-3xl text-center text-[#c9a227] mb-4 fade-in">${GAME_DATA.meta.title}</h2>
+      <p class="text-lg leading-relaxed text-center mb-3 ${fragmentClass}">${renderGlitchedText(GAME_DATA.room.baseDescription, band)}</p>
+      ${atmosphereNote ? `<p class="text-base leading-relaxed text-center italic opacity-80 mb-8 ${fragmentClass}">${atmosphereNote}</p>` : `<div class="mb-8"></div>`}
+
+      <div class="flex flex-wrap justify-center gap-5 mb-10">
+        ${objectsHtml}
+      </div>
+
+      <div class="flex flex-col items-center">
+        <button id="doorBtn" class="w-40 h-24 rounded-md border-2 flex flex-col items-center justify-center font-display text-sm tracking-widest ${allExamined ? "door-open border-[#c9a227] text-[#c9a227]" : "door-locked border-[#5a4632] text-[#d8c7a1]"}">
+          <span class="text-2xl mb-1">${allExamined ? "🔓" : "🔒"}</span>
+          <span>${GAME_DATA.ui.tryDoorButton}</span>
+        </button>
+        <p id="doorMsg" class="text-sm italic opacity-60 mt-3 max-w-sm text-center min-h-[3rem]"></p>
+      </div>
+    </div>
+  </div>
+
+  ${state.activeModal ? renderModal() : ""}
+  `;
+}
+
+function renderModal(){
+  const obj = getObject(state.activeModal);
+  if(!obj) return "";
+  const showParadox = state.modalStage === "paradox";
+  const chrome = (GAME_DATA.ui.modalChrome && GAME_DATA.ui.modalChrome[obj.id]) || { header: obj.name, tag: "" };
+
+  // Diegetic dispatch: each object renders inside a container that mimics
+  // the physical object itself, rather than a generic dialog box.
+  if(obj.id === "medicalFile") return renderMedicalModal(obj, showParadox, chrome);
+  if(obj.id === "diaries") return renderDiaryModal(obj, showParadox, chrome);
+  if(obj.id === "ship") return renderShipModal(obj, showParadox, chrome);
+  return renderGenericModal(obj, showParadox, chrome);
+}
+
+function modalActionButton(showParadox, btnClass){
+  return !showParadox
+    ? `<button id="revealParadoxBtn" class="${btnClass}">${GAME_DATA.ui.readMoreButton}</button>`
+    : `<button id="closeModalBtn" class="${btnClass}">${GAME_DATA.ui.closeButton}</button>`;
+}
+
+/* --- Medical File: manila folder tab, typewriter monospace, red stamp --- */
+function renderMedicalModal(obj, showParadox, chrome){
+  return `
+  <div id="modalBackdrop" class="modal-backdrop fixed inset-0 z-40 flex items-center justify-center p-4">
+    <div class="modal-medical relative max-w-xl w-full rounded-sm p-7 md:p-9 pt-10 max-h-[85vh] overflow-y-auto scrollbar-noir fade-in">
+      ${showParadox && chrome.paradoxStamp ? `<div class="medical-stamp">${chrome.paradoxStamp}</div>` : ""}
+      <div class="flex items-start justify-between border-b-2 border-[#24231f] pb-3 mb-5 gap-4">
+        <div>
+          <p class="text-[0.62rem] tracking-[0.25em] uppercase opacity-70">${chrome.tag}</p>
+          <h3 class="text-xl md:text-2xl font-bold tracking-wide mt-1">${chrome.header}</h3>
+        </div>
+        <span class="text-3xl opacity-80 shrink-0">${obj.icon}</span>
+      </div>
+      <p class="text-base md:text-[1.05rem] leading-relaxed">${obj.clue}</p>
+      ${showParadox ? `
+        <div class="my-5 border-t border-dashed" style="border-color:rgba(36,35,31,0.4);"></div>
+        <p class="text-base md:text-[1.05rem] leading-relaxed fade-in" style="color:#5c1414;">${obj.paradox}</p>
+      ` : ""}
+      <div class="flex justify-end mt-8">
+        ${modalActionButton(showParadox, "btn-medical")}
+      </div>
+    </div>
+  </div>`;
+}
+
+/* --- Diaries: leather spine, handwritten ink, intimate --- */
+function renderDiaryModal(obj, showParadox, chrome){
+  return `
+  <div id="modalBackdrop" class="modal-backdrop fixed inset-0 z-40 flex items-center justify-center p-4">
+    <div class="modal-diary relative max-w-xl w-full rounded-sm p-7 md:p-9 pl-11 md:pl-12 max-h-[85vh] overflow-y-auto scrollbar-noir fade-in">
+      <p class="text-sm uppercase tracking-[0.25em] opacity-60 mb-1" style="font-family:'Cormorant Garamond', serif;">${chrome.header}</p>
+      <p class="text-xs italic opacity-50 mb-4" style="font-family:'Cormorant Garamond', serif;">${chrome.tag}</p>
+      <p class="text-2xl md:text-[1.7rem] leading-snug">${obj.clue}</p>
+      ${showParadox ? `
+        <div class="my-5 h-px" style="background:rgba(58,35,19,0.3);"></div>
+        <p class="text-2xl md:text-[1.7rem] leading-snug fade-in" style="color:#6b1414;">${obj.paradox}</p>
+      ` : ""}
+      <div class="flex justify-end mt-6">
+        ${modalActionButton(showParadox, "btn-diary")}
+      </div>
+    </div>
+  </div>`;
+}
+
+/* --- Antique Ship: exhibition plaque, dark wood + brass border --- */
+function renderShipModal(obj, showParadox, chrome){
+  return `
+  <div id="modalBackdrop" class="modal-backdrop fixed inset-0 z-40 flex items-center justify-center p-4">
+    <div class="modal-ship relative max-w-xl w-full rounded-sm p-7 md:p-9 max-h-[85vh] overflow-y-auto scrollbar-noir fade-in">
+      <div class="text-center border-b pb-4 mb-5" style="border-color:rgba(201,162,39,0.4);">
+        <p class="ship-plaque-header text-[0.66rem] tracking-[0.4em] uppercase opacity-90" style="color:#c9a227;">${chrome.tag}</p>
+        <h3 class="ship-plaque-header text-2xl md:text-3xl mt-2 tracking-widest">${chrome.header}</h3>
+        <span class="block text-2xl mt-2 opacity-80">${obj.icon}</span>
+      </div>
+      <p class="text-lg md:text-xl leading-relaxed text-center italic">${obj.clue}</p>
+      ${showParadox ? `
+        <div class="my-5 h-px" style="background:linear-gradient(90deg, transparent, #c9a227, transparent);"></div>
+        <p class="text-lg md:text-xl leading-relaxed text-center italic fade-in" style="color:#e0b96a;">${obj.paradox}</p>
+      ` : ""}
+      <div class="flex justify-center mt-8">
+        ${modalActionButton(showParadox, "btn-ship")}
+      </div>
+    </div>
+  </div>`;
+}
+
+/* --- Fallback: generic noir card, used only if GAME_DATA gains a new
+   object id without a matching diegetic design above --- */
+function renderGenericModal(obj, showParadox, chrome){
+  return `
+  <div id="modalBackdrop" class="modal-backdrop fixed inset-0 z-40 flex items-center justify-center p-4">
+    <div class="paper-card max-w-xl w-full rounded-md p-6 md:p-8 max-h-[85vh] overflow-y-auto scrollbar-noir fade-in" style="background:linear-gradient(180deg, rgba(28,21,16,0.97), rgba(14,11,9,0.98));">
+      <div class="flex items-center gap-3 mb-4">
+        <span class="text-3xl" style="color:var(--gold)">${obj.icon}</span>
+        <h3 class="font-display text-xl tracking-wide text-[#c9a227]">${chrome.header || obj.name}</h3>
+      </div>
+      <p class="text-lg leading-relaxed">${obj.clue}</p>
+      ${showParadox ? `
+        <div class="divider my-5"></div>
+        <p class="text-lg leading-relaxed italic text-[#d8c7a1] fade-in">${obj.paradox}</p>
+      ` : ""}
+      <div class="flex justify-end gap-3 mt-8">
+        ${modalActionButton(showParadox, "btn-noir px-5 py-2 rounded-sm text-sm")}
+      </div>
+    </div>
+  </div>`;
+}
+
+function renderEpilogue(){
+  const firstId = state.order[0];
+  const firstObj = firstId ? getObject(firstId) : null;
+  const reflection = firstId ? GAME_DATA.epilogue.firstChoiceReflections[firstId] : "";
+  return `
+  <div class="max-w-2xl w-full text-center">
+    <h1 class="font-display text-3xl md:text-4xl text-[#c9a227] fade-in tracking-widest">${GAME_DATA.ui.epilogueTitle}</h1>
+    <div class="divider my-8 fade-in"></div>
+    <p class="text-lg md:text-xl leading-relaxed italic fade-in fade-in-1">${GAME_DATA.epilogue.finalMessage}</p>
+
+    ${firstObj ? `
+    <div class="mt-10 paper-card rounded-md p-6 text-left fade-in fade-in-2">
+      <p class="font-display text-xs uppercase tracking-[0.3em] text-[#8a7331] mb-3">${GAME_DATA.ui.dsReflectionTitle}</p>
+      <p class="text-base leading-relaxed mb-3">Examinaste primero: <span class="text-[#c9a227]">${firstObj.name}</span>.</p>
+      <p class="text-base leading-relaxed italic opacity-90">${reflection}</p>
+      <p class="text-sm leading-relaxed opacity-60 mt-4">${GAME_DATA.epilogue.dsClosing}</p>
+    </div>` : ""}
+
+    <p class="text-sm italic opacity-60 mt-10 fade-in fade-in-3">${GAME_DATA.ui.closingCredits}</p>
+
+    <button id="restartBtn" class="btn-noir mt-8 px-8 py-3 rounded-sm text-base fade-in fade-in-3">${GAME_DATA.ui.restartButton}</button>
+  </div>`;
+}
+
+/* ---------- Interaction handlers (Action -> Outcome -> Feedback) ---------- */
+
+function triggerCognitiveShake(){
+  const app = document.getElementById("app");
+  if(!app) return;
+  app.classList.remove("cognitive-shake");
+  void app.offsetWidth; // force reflow so the animation restarts cleanly
+  app.classList.add("cognitive-shake");
+  setTimeout(() => app.classList.remove("cognitive-shake"), 500);
+}
+
+function attachListeners(){
+  const lightbulbBtn = document.getElementById("lightbulbBtn");
+  if(lightbulbBtn){
+    lightbulbBtn.addEventListener("click", () => {
+      if(introLit) return;
+      // Action: the player turns the bulb on
+      lightbulbBtn.disabled = true;
+      lightbulbBtn.classList.add("bulb-flash");
+      const flash = document.createElement("div");
+      flash.className = "light-flash-overlay";
+      document.body.appendChild(flash);
+      setTimeout(() => flash.remove(), 800);
+      // Outcome: a quick flash illuminates the room...
+      setTimeout(() => {
+        introLit = true;
+        render();
+        // Feedback: ...then the introductory text fades in
+      }, 220);
+    });
+  }
+
+  const startBtn = document.getElementById("startBtn");
+  if(startBtn){
+    startBtn.addEventListener("click", () => {
+      state.screen = "room";
+      saveState();
+      render();
+    });
+  }
+
+  document.querySelectorAll("[data-obj]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const id = btn.getAttribute("data-obj");
+      // Action: player chooses to examine an object
+      state.activeModal = id;
+      state.modalStage = "clue";
+      render();
+    });
+  });
+
+  const revealParadoxBtn = document.getElementById("revealParadoxBtn");
+  if(revealParadoxBtn){
+    revealParadoxBtn.addEventListener("click", () => {
+      // Outcome: the comforting clue gives way to the paradox
+      state.modalStage = "paradox";
+
+      const obj = getObject(state.activeModal);
+      const firstTime = !state.examined.includes(obj.id);
+      if(firstTime){
+        state.examined.push(obj.id);
+        state.order.push(obj.id); // DS: silently records investigation order
+        state.lucidity = Math.max(0, state.lucidity - obj.lucidityDrop);
+        if(state.examined.length === TOTAL_OBJECTS){
+          state.doorUnlocked = true;
+        }
+      }
+      saveState();
+      render();
+      // Feedback: lucidity bar visibly drains after the paradox is shown,
+      // plus a brief cognitive-hit shake on the whole container
+      triggerCognitiveShake();
+    });
+  }
+
+  const closeModalBtn = document.getElementById("closeModalBtn");
+  if(closeModalBtn){
+    closeModalBtn.addEventListener("click", () => {
+      state.activeModal = null;
+      state.modalStage = "clue";
+      saveState();
+      render();
+    });
+  }
+
+  const backdrop = document.getElementById("modalBackdrop");
+  if(backdrop){
+    backdrop.addEventListener("click", (e) => {
+      if(e.target === backdrop && state.modalStage === "paradox"){
+        state.activeModal = null;
+        state.modalStage = "clue";
+        saveState();
+        render();
+      }
+    });
+  }
+
+  const doorBtn = document.getElementById("doorBtn");
+  if(doorBtn){
+    doorBtn.addEventListener("click", () => {
+      const doorMsg = document.getElementById("doorMsg");
+      if(state.examined.length === TOTAL_OBJECTS){
+        state.screen = "epilogue";
+        saveState();
+        render();
+      } else {
+        // Fail smart: no punishment, just a gentle narrative nudge
+        if(doorMsg) doorMsg.textContent = GAME_DATA.ui.doorLockedShake;
+        doorBtn.classList.add("shake");
+        setTimeout(() => doorBtn.classList.remove("shake"), 500);
+      }
+    });
+  }
+
+  const restartBtn = document.getElementById("restartBtn");
+  if(restartBtn){
+    restartBtn.addEventListener("click", () => {
+      localStorage.removeItem(STORAGE_KEY);
+      state = defaultState();
+      introLit = false;
+      render();
+    });
+  }
+}
+
+/* ---------- Init ---------- */
+render();
+</script>
+</body>
+</html>
